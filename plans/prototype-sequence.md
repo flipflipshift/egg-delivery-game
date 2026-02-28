@@ -49,9 +49,9 @@ The game ("DoorDash on Caldara") takes place on a steam gas giant where the play
 - [x] High scores (localStorage)
 
 ## Prototype 5: Parameter Tuning
-- [ ] Build simulation script
-- [ ] Tune thermal/gelation parameters
-- [ ] Tune physics parameters
-- [ ] Verify 4+ oscillations required
-- [ ] Verify idle time < 25%
-- [ ] Play-test and iterate
+- [x] Build simulation script
+- [x] Tune thermal/gelation parameters
+- [x] Tune physics parameters
+- [x] Verify 4+ oscillations required
+- [x] Verify idle time < 25%
+- [ ] Play-test and iterate (ongoing)
