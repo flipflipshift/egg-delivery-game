@@ -8,5 +8,5 @@
 - [x] 3. Gameplay fixes (1, 6, 8)
 - [x] 4. HUD/instructions changes (2, 7, 9)
 - [x] 5. Visual polish (3)
-- [ ] 6. Commit
-- [ ] 7. Playwright verification
+- [x] 6. Commit (9fd2b34)
+- [x] 7. Playwright verification — all checks pass
