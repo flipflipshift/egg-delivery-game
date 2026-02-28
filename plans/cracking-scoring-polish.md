@@ -7,4 +7,4 @@
 - [x] 4. Farm visual enhancements (chicken colors, wattles, grass, flowers, nest)
 - [x] 5. House visual enhancements (shingles, shutters, glow, smoke, mailbox, stepping stones, flowers)
 - [x] 6. Playwright verification
-- [ ] 7. Commit
+- [x] 7. Commit
