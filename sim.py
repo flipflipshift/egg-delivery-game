@@ -4,20 +4,20 @@ Egg Delivery Game — Parameter Tuning Simulation
 
 import math
 
-# ── Physics ──
-GRAVITY = 9.81
-THRUST_UP = 2 * GRAVITY    # 2g up — allows real climbing
-THRUST_SIDE = 8.0
-DRAG = 0.003                # low drag → terminal ~54 m/s → deep dives possible
-MAX_SPEED = 60
-JONES_X = 3000
-WORLD_BOTTOM = 5000
+# ── Physics (2.5x spatial scale) ──
+GRAVITY = 24.525            # 9.81 × 2.5
+THRUST_UP = 2 * GRAVITY     # 2g up — allows real climbing
+THRUST_SIDE = 20.0          # 8.0 × 2.5
+DRAG = 0.003                # low drag (terminal velocity scales with gravity)
+MAX_SPEED = 150             # 60 × 2.5
+JONES_X = 7500              # 3000 × 2.5
+WORLD_BOTTOM = 12500        # 5000 × 2.5
 
 # ── Thermal ──
-A_POD = 0.08                # pod heats/cools fast (8% per second)
-A_WHITE = 0.025             # white responds reasonably to pod
+A_POD = 0.3                 # pod closely tracks outside temp
+A_WHITE = 0.035             # white responds to pod (bumped from 0.025 for A_POD=0.3)
 A_YOLK = 0.010              # yolk lags behind white
-K_WHITE = 0.007             # white gelation rate (needs 0.9 target)
+K_WHITE = 0.009             # white gelation rate (needs 0.9 target) — tuned for A_POD=0.3
 W_WHITE = 3
 K_YOLK = 0.004              # yolk gelation rate (needs 0.6 target)
 W_YOLK = 3
@@ -31,7 +31,7 @@ def sigmoid(x):
 
 
 def outside_temp(depth):
-    return 323 + 0.05 * depth
+    return 323 + 0.02 * depth  # 0.05/2.5 — same temp at proportional depth
 
 
 def peak(v, t, w):
@@ -73,8 +73,8 @@ def sim(route, label="", verbose=False):
             # Oscillation tracking
             d = 1 if vy > 1 else (-1 if vy < -1 else 0)
             if d != 0 and d != prev_dir:
-                if d == -1 and y > 300:  # started going up from depth
-                    if y - trough_y > 200:
+                if d == -1 and y > 750:  # started going up from depth (300 × 2.5)
+                    if y - trough_y > 500:  # 200 × 2.5
                         osc += 1
                     trough_y = y
                 elif d == 1:
@@ -82,7 +82,7 @@ def sim(route, label="", verbose=False):
                 prev_dir = d
             peak_y = max(peak_y, y)
 
-            if abs(x - JONES_X) < 200 and y < 100:
+            if abs(x - JONES_X) < 500 and y < 250:  # scaled proximity
                 idle += dt
 
             # Thermal (1s ticks)
@@ -135,8 +135,8 @@ def sim(route, label="", verbose=False):
 print("=" * 60)
 print("  EGG DELIVERY — PARAMETER TUNING")
 print(f"  Terminal vel: {GRAVITY / (60 * DRAG):.1f} m/s")
-print(f"  Depth for 100°C outside: {(373-323)/0.05:.0f}m")
-print(f"  Depth for 120°C outside: {(393-323)/0.05:.0f}m")
+print(f"  Depth for 100°C outside: {(373-323)/0.02:.0f}m")
+print(f"  Depth for 120°C outside: {(393-323)/0.02:.0f}m")
 print("=" * 60)
 
 UP = 1  # shorthand

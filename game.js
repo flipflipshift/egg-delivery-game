@@ -6,23 +6,23 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = 800, H = 600;
 
-// ── Physics Constants ──
-const GRAVITY = 9.81;          // m/s² downward
+// ── Physics Constants (2.5x spatial scale) ──
+const GRAVITY = 24.525;        // m/s² downward (9.81 × 2.5)
 const THRUST_UP = 2 * GRAVITY; // 2g upward — allows actual climbing
-const THRUST_SIDE = 8.0;       // m/s² horizontal
-const DRAG = 0.003;            // low drag for deep dives (terminal ~54 m/s)
-const MAX_SPEED = 60;          // m/s hard speed cap
+const THRUST_SIDE = 20.0;     // m/s² horizontal (8.0 × 2.5)
+const DRAG = 0.003;            // low drag (terminal velocity scales with gravity)
+const MAX_SPEED = 150;         // m/s hard speed cap (60 × 2.5)
 const WORLD_TOP = 0;           // min depth
-const WORLD_BOTTOM = 5000;     // max depth in meters
+const WORLD_BOTTOM = 12500;    // max depth in meters (5000 × 2.5)
 const WORLD_LEFT = -50;        // small buffer left of farm
-const JONES_X = 3000;          // horizontal distance to Jones' house
-const DELIVERY_RADIUS = 80;    // how close to deliver
+const JONES_X = 7500;          // horizontal distance to Jones' house (3000 × 2.5)
+const DELIVERY_RADIUS = 200;   // how close to deliver (80 × 2.5)
 
 // ── Thermal Constants ──
-let A_POD = 0.08;              // pod heats/cools fast
-let A_WHITE = 0.025;           // white responds to pod
+let A_POD = 0.3;               // pod closely tracks outside temp
+let A_WHITE = 0.035;           // white responds to pod (tuned for A_POD=0.3)
 let A_YOLK = 0.010;            // yolk lags behind white
-let K_WHITE = 0.007;           // white gelation rate
+let K_WHITE = 0.009;           // white gelation rate (tuned for A_POD=0.3)
 let W_WHITE = 3;
 let K_YOLK = 0.004;            // yolk gelation rate
 let W_YOLK = 3;
@@ -43,6 +43,7 @@ let gameState = 'instructions'; // instructions | opening | playing | gameover |
 let gameOverReason = '';
 let openingTimer = 0;
 const OPENING_DURATION = 2.5;  // seconds for opening animation
+let eggLoaded = false;         // true once falling egg reaches device in opening
 
 let device = {
   x: 20, y: 0,      // world position (x = horizontal, y = depth)
@@ -66,6 +67,8 @@ let keys = {};
 let lastTime = 0;
 let thermalAccum = 0;    // accumulator for 1-second thermal ticks
 let score = 0;
+let whiteScore = 0;
+let yolkScore = 0;
 let highScores = JSON.parse(localStorage.getItem('caldara_scores') || '[]');
 
 // ── Particle Systems ──
@@ -78,12 +81,12 @@ function sigmoid(x) {
 }
 
 function outsideTemp(depth) {
-  return 323 + 0.05 * depth; // K
+  return 323 + 0.02 * depth; // K (0.05/2.5 — same temp at proportional depth)
 }
 
 function outsidePressure(depth) {
   const T = outsideTemp(depth);
-  return 0.12 * Math.pow(T / 323, 4.33); // bars
+  return 0.12 * Math.pow(T / 323, 4.33); // bars (scales via T which already uses 0.02)
 }
 
 function kelvinToCelsius(k) {
@@ -120,7 +123,7 @@ document.addEventListener('keydown', e => {
   }
   // Restart
   if (e.key === 'r' || e.key === 'R') {
-    if (gameState === 'gameover' || gameState === 'scoring') {
+    if (gameState === 'gameover' || gameState === 'scoring' || gameState === 'playing') {
       resetGame();
     }
   }
@@ -178,6 +181,11 @@ function updatePhysics(dt) {
   if (device.x < WORLD_LEFT) {
     device.x = WORLD_LEFT;
     device.vx = Math.max(0, device.vx);
+  }
+  const WORLD_RIGHT = JONES_X + 100;
+  if (device.x > WORLD_RIGHT) {
+    device.x = WORLD_RIGHT;
+    device.vx = Math.min(0, device.vx);
   }
 
   // Spawn thrust particles
@@ -331,8 +339,8 @@ function updateCamera() {
 
 // ── Score Calculation ──
 function calculateScore() {
-  const whiteScore = 100 * peak(thermal.whiteGelation, 0.9, 0.15);
-  const yolkScore = 100 * peak(thermal.yolkGelation, 0.6, 0.15);
+  whiteScore = Math.round(100 * peak(thermal.whiteGelation, 0.9, 0.15));
+  yolkScore = Math.round(100 * peak(thermal.yolkGelation, 0.6, 0.15));
   const boilPenalty = thermal.boilSeconds * 10;
   const crackPenalty = thermal.cracks * thermal.cracks * 20;
   score = Math.round(Math.max(0, whiteScore + yolkScore - boilPenalty - crackPenalty));
@@ -362,7 +370,10 @@ function resetGame() {
   thrustParticles = [];
   thermalAccum = 0;
   score = 0;
+  whiteScore = 0;
+  yolkScore = 0;
   openingTimer = 0;
+  eggLoaded = false;
   gameState = 'instructions';
   gameOverReason = '';
 }
@@ -433,21 +444,83 @@ function renderFarm(ox, oy) {
   ctx.fillStyle = '#4a7a3a';
   ctx.fillRect(bx - 45, by - 10, 90, 15);
 
-  // Simple chickens (small shapes)
-  for (let i = 0; i < 3; i++) {
-    const cx = bx - 25 + i * 20;
-    const cy = by - 14;
-    // Body
+  // Chickens with distinct shapes
+  const chickens = [
+    { x: bx - 25, y: by - 14, facing: 1 },
+    { x: bx - 5, y: by - 15, facing: -1 },
+    { x: bx + 15, y: by - 14, facing: 1 },
+  ];
+  for (const ch of chickens) {
+    const cx = ch.x, cy = ch.y, f = ch.facing;
+    // Tail feathers
+    ctx.fillStyle = '#c8a060';
+    ctx.beginPath();
+    ctx.moveTo(cx - f * 5, cy);
+    ctx.lineTo(cx - f * 9, cy - 4);
+    ctx.lineTo(cx - f * 8, cy + 1);
+    ctx.closePath();
+    ctx.fill();
+    // Body (rounded)
     ctx.fillStyle = '#e8d4a0';
     ctx.beginPath();
     ctx.ellipse(cx, cy, 5, 4, 0, 0, Math.PI * 2);
     ctx.fill();
     // Head
-    ctx.fillStyle = '#d44';
+    ctx.fillStyle = '#e8d4a0';
     ctx.beginPath();
-    ctx.arc(cx + 4, cy - 3, 2, 0, Math.PI * 2);
+    ctx.arc(cx + f * 5, cy - 3, 2.5, 0, Math.PI * 2);
     ctx.fill();
+    // Comb (red zigzag on top)
+    ctx.fillStyle = '#d33';
+    ctx.beginPath();
+    ctx.moveTo(cx + f * 4, cy - 5.5);
+    ctx.lineTo(cx + f * 5, cy - 8);
+    ctx.lineTo(cx + f * 6, cy - 5.5);
+    ctx.lineTo(cx + f * 7, cy - 7.5);
+    ctx.lineTo(cx + f * 7.5, cy - 5);
+    ctx.closePath();
+    ctx.fill();
+    // Beak (triangle)
+    ctx.fillStyle = '#e8a020';
+    ctx.beginPath();
+    ctx.moveTo(cx + f * 7, cy - 3);
+    ctx.lineTo(cx + f * 10, cy - 2.5);
+    ctx.lineTo(cx + f * 7, cy - 1.5);
+    ctx.closePath();
+    ctx.fill();
+    // Eye
+    ctx.fillStyle = '#222';
+    ctx.beginPath();
+    ctx.arc(cx + f * 5.5, cy - 3.5, 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    // Legs
+    ctx.strokeStyle = '#c87020';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(cx - 1, cy + 3);
+    ctx.lineTo(cx - 2, cy + 7);
+    ctx.moveTo(cx + 1, cy + 3);
+    ctx.lineTo(cx + 2, cy + 7);
+    ctx.stroke();
   }
+
+  // Fence posts
+  ctx.strokeStyle = '#8a6530';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const fx = bx - 40 + i * 20;
+    ctx.beginPath();
+    ctx.moveTo(fx, by - 10);
+    ctx.lineTo(fx, by - 2);
+    ctx.stroke();
+  }
+  // Fence rails
+  ctx.beginPath();
+  ctx.moveTo(bx - 40, by - 7);
+  ctx.lineTo(bx + 40, by - 7);
+  ctx.moveTo(bx - 40, by - 4);
+  ctx.lineTo(bx + 40, by - 4);
+  ctx.stroke();
 
   // Flotation device (below platform)
   ctx.fillStyle = '#667';
@@ -498,13 +571,46 @@ function renderJonesHouse(ox, oy) {
   ctx.closePath();
   ctx.fill();
 
+  // Chimney
+  ctx.fillStyle = '#664';
+  ctx.fillRect(hx + 10, hy - 42, 5, 12);
+  ctx.fillStyle = '#553';
+  ctx.fillRect(hx + 9, hy - 43, 7, 2);
+
   // Door
   ctx.fillStyle = '#5a3a1a';
   ctx.fillRect(hx - 4, hy - 20, 8, 12);
+  // Door handle
+  ctx.fillStyle = '#ca8';
+  ctx.beginPath();
+  ctx.arc(hx + 2, hy - 14, 0.8, 0, Math.PI * 2);
+  ctx.fill();
 
-  // Window
+  // Left window
+  ctx.fillStyle = '#ffdd88';
+  ctx.fillRect(hx - 14, hy - 26, 7, 6);
+  ctx.strokeStyle = '#5a3a1a';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(hx - 10.5, hy - 26);
+  ctx.lineTo(hx - 10.5, hy - 20);
+  ctx.moveTo(hx - 14, hy - 23);
+  ctx.lineTo(hx - 7, hy - 23);
+  ctx.stroke();
+
+  // Right window
   ctx.fillStyle = '#ffdd88';
   ctx.fillRect(hx + 8, hy - 26, 7, 6);
+  ctx.beginPath();
+  ctx.moveTo(hx + 11.5, hy - 26);
+  ctx.lineTo(hx + 11.5, hy - 20);
+  ctx.moveTo(hx + 8, hy - 23);
+  ctx.lineTo(hx + 15, hy - 23);
+  ctx.stroke();
+
+  // Welcome mat
+  ctx.fillStyle = '#6a4a2a';
+  ctx.fillRect(hx - 5, hy - 8, 10, 3);
 
   // Flotation
   ctx.fillStyle = '#667';
@@ -536,13 +642,15 @@ function renderDevice(ox, oy) {
   // Egg inside (visible through a viewport)
   ctx.fillStyle = '#333';
   ctx.fillRect(dx - 6, dy - 6, 12, 10);
-  // Egg
-  ctx.fillStyle = '#f4ead0';
-  ctx.beginPath();
-  ctx.ellipse(dx, dy - 1, 4, 5, 0, 0, Math.PI * 2);
-  ctx.fill();
+  if (eggLoaded) {
+    // Egg
+    ctx.fillStyle = '#f4ead0';
+    ctx.beginPath();
+    ctx.ellipse(dx, dy - 1, 4, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
   // Cracks on egg
-  if (thermal.cracks > 0) {
+  if (eggLoaded && thermal.cracks > 0) {
     ctx.strokeStyle = '#664';
     ctx.lineWidth = 0.8;
     for (let c = 0; c < Math.min(thermal.cracks, MAX_CRACKS); c++) {
@@ -678,9 +786,17 @@ function renderHUD() {
   const yolkC = kelvinToCelsius(thermal.yolkTemp);
   ctx.fillStyle = '#dda';
   ctx.fillText(`White: ${whiteC.toFixed(1)}°C`, x, y);
+  ctx.fillStyle = '#886';
+  ctx.font = '8px monospace';
+  ctx.fillText('cooks >85°C', x + 105, y);
+  ctx.font = '11px monospace';
   y += lh;
   ctx.fillStyle = '#da8';
   ctx.fillText(`Yolk:  ${yolkC.toFixed(1)}°C`, x, y);
+  ctx.fillStyle = '#864';
+  ctx.font = '8px monospace';
+  ctx.fillText('cooks >65°C', x + 105, y);
+  ctx.font = '11px monospace';
   y += lh;
 
   // Boiling point
@@ -851,7 +967,9 @@ function renderProgressBar() {
   ctx.fillStyle = '#8ac';
   ctx.font = '9px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(`${Math.round(device.x)}m / ${JONES_X}m`, barX + barW / 2, barY + barH + 14);
+  const distKm = (device.x / 1000).toFixed(1);
+  const totalKm = (JONES_X / 1000).toFixed(1);
+  ctx.fillText(`${distKm}km / ${totalKm}km`, barX + barW / 2, barY + barH + 14);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -876,11 +994,13 @@ function renderInstructions() {
   const lines = [
     'The steam giant Caldara. Population: scattered.',
     'The Jones family ordered one egg, soft-boiled.',
-    'Your job: deliver it 3km through the atmosphere.',
+    'Your job: deliver it through the atmosphere.',
     '',
     'As you descend, the air gets hotter — cooking the egg.',
-    'Oscillate your altitude to cook it just right:',
-    '  White gelation target: 0.9  |  Yolk target: 0.6',
+    'A study once found that the secret to a perfect cook',
+    'lies in alternating between hot and cool zones —',
+    'not lingering at one depth.',
+    'The egg needs rhythm, not patience.',
     '',
     'But watch out:',
     '  - Rapid temperature swings crack the shell',
@@ -946,6 +1066,9 @@ function renderOpening(dt) {
     ctx.fillText('You\'re on your own!', W / 2, H - 40);
   }
 
+  if (openingTimer >= 1.5 && !eggLoaded) {
+    eggLoaded = true;
+  }
   if (openingTimer >= OPENING_DURATION) {
     gameState = 'playing';
   }
@@ -1017,7 +1140,7 @@ function renderFinalStats(startY) {
   const whiteFeedback = thermal.whiteGelation < 0.75 ? 'Undercooked' :
     thermal.whiteGelation > 1.05 ? 'Overcooked' : 'Just right!';
   ctx.fillStyle = whiteFeedback === 'Just right!' ? '#6f6' : '#f88';
-  ctx.fillText(whiteFeedback, W / 2, y);
+  ctx.fillText(`${whiteFeedback}  +${whiteScore} pts`, W / 2, y);
   y += 25;
 
   // Yolk gelation bar
@@ -1029,7 +1152,7 @@ function renderFinalStats(startY) {
   const yolkFeedback = thermal.yolkGelation < 0.45 ? 'Undercooked' :
     thermal.yolkGelation > 0.75 ? 'Overcooked' : 'Just right!';
   ctx.fillStyle = yolkFeedback === 'Just right!' ? '#6f6' : '#f88';
-  ctx.fillText(yolkFeedback, W / 2, y);
+  ctx.fillText(`${yolkFeedback}  +${yolkScore} pts`, W / 2, y);
   y += 25;
 
   // Cracks
@@ -1070,6 +1193,33 @@ function renderScoringBar(x, y, w, h, value, target, cap) {
   ctx.strokeStyle = 'rgba(100,130,180,0.5)';
   ctx.lineWidth = 1;
   ctx.strokeRect(x, y, w, h);
+}
+
+// ── Right Boundary Wall ──
+function renderBoundaryWall(ox, oy) {
+  const wallX = JONES_X + 100;
+  const screenX = wallX - ox;
+  // Only render if visible on screen
+  if (screenX < 0 || screenX > W + 20) return;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,120,60,0.5)';
+  ctx.font = '16px monospace';
+  ctx.textAlign = 'center';
+  for (let i = -20; i <= 20; i++) {
+    const screenY = (camera.y + H / 2) - oy + i * 25;
+    ctx.fillText('\u25B2', screenX, screenY);
+  }
+  // Vertical line
+  ctx.strokeStyle = 'rgba(255,120,60,0.25)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(screenX, 0);
+  ctx.lineTo(screenX, H);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
 }
 
 // ── Delivery Prompt ──
@@ -1134,6 +1284,7 @@ function loop(timestamp) {
     renderJonesHouse(ox, oy);
     renderThrustParticles(ox, oy);
     renderDevice(ox, oy);
+    renderBoundaryWall(ox, oy);
     renderHUD();
     renderDeliveryPrompt();
   } else if (gameState === 'gameover') {
