@@ -21,8 +21,8 @@ K_WHITE = 0.009             # white gelation rate (needs 0.9 target) — tuned f
 W_WHITE = 3
 K_YOLK = 0.004              # yolk gelation rate (needs 0.6 target)
 W_YOLK = 3
-CRACK_THRESHOLD = 1.5       # °C per tick — only triggers on aggressive dives
-CRACK_COOLDOWN = 20
+CRACK_THRESHOLD = 1.2       # °C per tick — moderate oscillations produce cracks
+CRACK_COOLDOWN = 12
 BOIL_LIMIT = 20
 
 

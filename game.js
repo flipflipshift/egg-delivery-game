@@ -26,8 +26,8 @@ let K_WHITE = 0.009;           // white gelation rate (tuned for A_POD=0.3)
 let W_WHITE = 3;
 let K_YOLK = 0.004;            // yolk gelation rate
 let W_YOLK = 3;
-const CRACK_THRESHOLD = 1.5;   // °C change per tick (only aggressive dives)
-const CRACK_COOLDOWN = 20;     // seconds between cracks
+const CRACK_THRESHOLD = 1.2;   // °C change per tick (moderate oscillations produce cracks)
+const CRACK_COOLDOWN = 12;     // seconds between cracks
 const MAX_CRACKS = 4;          // 0-4 cracks, then broken
 const BOIL_LIMIT = 20;         // seconds of boiling = game over
 const WHITE_GEL_CAP = 1.5;    // overcooked threshold
@@ -99,6 +99,18 @@ function peak(value, target, width) {
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
+}
+
+function getGelationFeedback(value, target, cap) {
+  const ratio = value / target;
+  if (ratio < 0.33) return { label: 'Raw', color: '#aaa' };
+  if (ratio < 0.67) return { label: 'Undercooked', color: '#f88' };
+  if (ratio < 0.89) return { label: 'Slightly undercooked', color: '#fa8' };
+  if (ratio < 1.11) return { label: 'Just right!', color: '#6f6' };
+  const overRatio = (value - target) / (cap - target);
+  if (overRatio < 0.42) return { label: 'Slightly overcooked', color: '#fa8' };
+  if (overRatio < 0.83) return { label: 'Overcooked', color: '#f88' };
+  return { label: 'Ruined', color: '#f44' };
 }
 
 // ── Input Handling ──
@@ -444,16 +456,82 @@ function renderFarm(ox, oy) {
   ctx.fillStyle = '#4a7a3a';
   ctx.fillRect(bx - 45, by - 10, 90, 15);
 
-  // Chickens with distinct shapes
+  // Grass tufts along ground line
+  ctx.strokeStyle = '#5a9a4a';
+  ctx.lineWidth = 0.8;
+  for (let i = 0; i < 12; i++) {
+    const gx = bx - 42 + i * 7;
+    const gy = by - 10;
+    ctx.beginPath();
+    ctx.moveTo(gx, gy);
+    ctx.lineTo(gx - 2, gy - 4);
+    ctx.moveTo(gx, gy);
+    ctx.lineTo(gx + 2, gy - 4);
+    ctx.stroke();
+  }
+
+  // Small flowers along left edge
+  const flowerColors = ['#f66', '#ff8', '#f8f', '#8cf'];
+  for (let i = 0; i < 4; i++) {
+    const fx = bx - 38 + i * 5;
+    const fy = by - 13;
+    // Stem
+    ctx.strokeStyle = '#4a8a3a';
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(fx, fy + 3);
+    ctx.lineTo(fx, fy);
+    ctx.stroke();
+    // Petals
+    ctx.fillStyle = flowerColors[i];
+    ctx.beginPath();
+    ctx.arc(fx, fy, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    // Center
+    ctx.fillStyle = '#ff0';
+    ctx.beginPath();
+    ctx.arc(fx, fy, 0.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Small nest with 2 eggs near right side
+  ctx.fillStyle = '#8a6530';
+  ctx.beginPath();
+  ctx.ellipse(bx + 30, by - 11, 6, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Straw texture
+  ctx.strokeStyle = '#a08040';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(bx + 25 + i * 3, by - 12);
+    ctx.lineTo(bx + 26 + i * 3, by - 10);
+    ctx.stroke();
+  }
+  // Eggs in nest
+  ctx.fillStyle = '#f4ead0';
+  ctx.beginPath();
+  ctx.ellipse(bx + 28, by - 12, 2, 2.5, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(bx + 32, by - 12, 2, 2.5, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Chickens with distinct shapes and colors
+  const chickenColors = ['#e8d4a0', '#f0ece0', '#8b5e3c']; // buff, white, brown
+  const tailColors = ['#c8a060', '#d8d4c0', '#6a4020'];
   const chickens = [
     { x: bx - 25, y: by - 14, facing: 1 },
     { x: bx - 5, y: by - 15, facing: -1 },
     { x: bx + 15, y: by - 14, facing: 1 },
   ];
-  for (const ch of chickens) {
+  for (let ci = 0; ci < chickens.length; ci++) {
+    const ch = chickens[ci];
     const cx = ch.x, cy = ch.y, f = ch.facing;
+    const bodyColor = chickenColors[ci];
+    const tailColor = tailColors[ci];
     // Tail feathers
-    ctx.fillStyle = '#c8a060';
+    ctx.fillStyle = tailColor;
     ctx.beginPath();
     ctx.moveTo(cx - f * 5, cy);
     ctx.lineTo(cx - f * 9, cy - 4);
@@ -461,12 +539,12 @@ function renderFarm(ox, oy) {
     ctx.closePath();
     ctx.fill();
     // Body (rounded)
-    ctx.fillStyle = '#e8d4a0';
+    ctx.fillStyle = bodyColor;
     ctx.beginPath();
     ctx.ellipse(cx, cy, 5, 4, 0, 0, Math.PI * 2);
     ctx.fill();
     // Head
-    ctx.fillStyle = '#e8d4a0';
+    ctx.fillStyle = bodyColor;
     ctx.beginPath();
     ctx.arc(cx + f * 5, cy - 3, 2.5, 0, Math.PI * 2);
     ctx.fill();
@@ -479,6 +557,11 @@ function renderFarm(ox, oy) {
     ctx.lineTo(cx + f * 7, cy - 7.5);
     ctx.lineTo(cx + f * 7.5, cy - 5);
     ctx.closePath();
+    ctx.fill();
+    // Wattle (red drop below beak)
+    ctx.fillStyle = '#c22';
+    ctx.beginPath();
+    ctx.ellipse(cx + f * 7.5, cy - 0.5, 1, 1.5, 0, 0, Math.PI * 2);
     ctx.fill();
     // Beak (triangle)
     ctx.fillStyle = '#e8a020';
@@ -571,11 +654,39 @@ function renderJonesHouse(ox, oy) {
   ctx.closePath();
   ctx.fill();
 
+  // Roof shingles (horizontal lines across triangle)
+  ctx.strokeStyle = '#822';
+  ctx.lineWidth = 0.4;
+  for (let i = 1; i <= 4; i++) {
+    const t = i / 5;
+    const sy = hy - 30 - t * 15;
+    const halfW = 22 * (1 - t);
+    ctx.beginPath();
+    ctx.moveTo(hx - halfW, sy);
+    ctx.lineTo(hx + halfW, sy);
+    ctx.stroke();
+  }
+
   // Chimney
   ctx.fillStyle = '#664';
   ctx.fillRect(hx + 10, hy - 42, 5, 12);
   ctx.fillStyle = '#553';
   ctx.fillRect(hx + 9, hy - 43, 7, 2);
+
+  // Animated chimney smoke puffs
+  const now = Date.now() / 1000;
+  for (let i = 0; i < 3; i++) {
+    const phase = now * 0.5 + i * 2.1;
+    const drift = (phase % 3) / 3; // 0 to 1 rising
+    const sx = hx + 12.5 + Math.sin(phase * 1.5) * 3;
+    const sy = hy - 43 - drift * 15;
+    const sr = 1.5 + drift * 2;
+    const sa = 0.25 * (1 - drift);
+    ctx.fillStyle = `rgba(200,200,210,${sa})`;
+    ctx.beginPath();
+    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   // Door
   ctx.fillStyle = '#5a3a1a';
@@ -586,6 +697,9 @@ function renderJonesHouse(ox, oy) {
   ctx.arc(hx + 2, hy - 14, 0.8, 0, Math.PI * 2);
   ctx.fill();
 
+  // Left window glow
+  ctx.fillStyle = 'rgba(255,230,140,0.3)';
+  ctx.fillRect(hx - 15, hy - 27, 9, 8);
   // Left window
   ctx.fillStyle = '#ffdd88';
   ctx.fillRect(hx - 14, hy - 26, 7, 6);
@@ -597,7 +711,14 @@ function renderJonesHouse(ox, oy) {
   ctx.moveTo(hx - 14, hy - 23);
   ctx.lineTo(hx - 7, hy - 23);
   ctx.stroke();
+  // Left shutters
+  ctx.fillStyle = '#3a6a3a';
+  ctx.fillRect(hx - 16, hy - 26, 2, 6);
+  ctx.fillRect(hx - 7, hy - 26, 2, 6);
 
+  // Right window glow
+  ctx.fillStyle = 'rgba(255,230,140,0.3)';
+  ctx.fillRect(hx + 7, hy - 27, 9, 8);
   // Right window
   ctx.fillStyle = '#ffdd88';
   ctx.fillRect(hx + 8, hy - 26, 7, 6);
@@ -607,10 +728,48 @@ function renderJonesHouse(ox, oy) {
   ctx.moveTo(hx + 8, hy - 23);
   ctx.lineTo(hx + 15, hy - 23);
   ctx.stroke();
+  // Right shutters
+  ctx.fillStyle = '#3a6a3a';
+  ctx.fillRect(hx + 6, hy - 26, 2, 6);
+  ctx.fillRect(hx + 15, hy - 26, 2, 6);
 
   // Welcome mat
   ctx.fillStyle = '#6a4a2a';
   ctx.fillRect(hx - 5, hy - 8, 10, 3);
+
+  // Stepping stones from door to edge
+  ctx.fillStyle = '#8a8a7a';
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.ellipse(hx, hy - 4 + i * 4, 2.5, 1.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Small garden flowers by the door
+  const gardenColors = ['#f66', '#ff8', '#f8f'];
+  for (let i = 0; i < 3; i++) {
+    const gx = hx - 12 + i * 3;
+    const gy = hy - 10;
+    ctx.strokeStyle = '#4a8a3a';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(gx, gy + 2);
+    ctx.lineTo(gx, gy);
+    ctx.stroke();
+    ctx.fillStyle = gardenColors[i];
+    ctx.beginPath();
+    ctx.arc(gx, gy, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Mailbox to the right
+  ctx.fillStyle = '#556';
+  ctx.fillRect(hx + 25, hy - 16, 2, 8);
+  ctx.fillStyle = '#446';
+  ctx.fillRect(hx + 23, hy - 18, 6, 4);
+  // Mailbox flag
+  ctx.fillStyle = '#d44';
+  ctx.fillRect(hx + 29, hy - 18, 1, 3);
 
   // Flotation
   ctx.fillStyle = '#667';
@@ -1137,10 +1296,9 @@ function renderFinalStats(startY) {
   y += 5;
   renderScoringBar(W / 2 - 120, y, 240, 14, thermal.whiteGelation, 0.9, WHITE_GEL_CAP);
   y += 22;
-  const whiteFeedback = thermal.whiteGelation < 0.75 ? 'Undercooked' :
-    thermal.whiteGelation > 1.05 ? 'Overcooked' : 'Just right!';
-  ctx.fillStyle = whiteFeedback === 'Just right!' ? '#6f6' : '#f88';
-  ctx.fillText(`${whiteFeedback}  +${whiteScore} pts`, W / 2, y);
+  const wFb = getGelationFeedback(thermal.whiteGelation, 0.9, WHITE_GEL_CAP);
+  ctx.fillStyle = wFb.color;
+  ctx.fillText(`${wFb.label}  +${whiteScore} pts`, W / 2, y);
   y += 25;
 
   // Yolk gelation bar
@@ -1149,10 +1307,9 @@ function renderFinalStats(startY) {
   y += 5;
   renderScoringBar(W / 2 - 120, y, 240, 14, thermal.yolkGelation, 0.6, YOLK_GEL_CAP);
   y += 22;
-  const yolkFeedback = thermal.yolkGelation < 0.45 ? 'Undercooked' :
-    thermal.yolkGelation > 0.75 ? 'Overcooked' : 'Just right!';
-  ctx.fillStyle = yolkFeedback === 'Just right!' ? '#6f6' : '#f88';
-  ctx.fillText(`${yolkFeedback}  +${yolkScore} pts`, W / 2, y);
+  const yFb = getGelationFeedback(thermal.yolkGelation, 0.6, YOLK_GEL_CAP);
+  ctx.fillStyle = yFb.color;
+  ctx.fillText(`${yFb.label}  +${yolkScore} pts`, W / 2, y);
   y += 25;
 
   // Cracks
