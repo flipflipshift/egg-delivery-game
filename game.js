@@ -8,10 +8,10 @@ const W = 800, H = 600;
 
 // ── Physics Constants ──
 const GRAVITY = 9.81;          // m/s² downward
-const THRUST_UP = GRAVITY;     // 1g upward (exactly cancels gravity)
-const THRUST_SIDE = 6.0;       // m/s² horizontal
-const DRAG = 0.015;            // air resistance coefficient
-const MAX_SPEED = 60;          // m/s terminal velocity
+const THRUST_UP = 2 * GRAVITY; // 2g upward — allows actual climbing
+const THRUST_SIDE = 8.0;       // m/s² horizontal
+const DRAG = 0.003;            // low drag for deep dives (terminal ~54 m/s)
+const MAX_SPEED = 60;          // m/s hard speed cap
 const WORLD_TOP = 0;           // min depth
 const WORLD_BOTTOM = 5000;     // max depth in meters
 const WORLD_LEFT = -50;        // small buffer left of farm
@@ -19,14 +19,14 @@ const JONES_X = 3000;          // horizontal distance to Jones' house
 const DELIVERY_RADIUS = 80;    // how close to deliver
 
 // ── Thermal Constants ──
-let A_POD = 0.03;
-let A_WHITE = 0.008;
-let A_YOLK = 0.002;
-let K_WHITE = 0.005;
+let A_POD = 0.08;              // pod heats/cools fast
+let A_WHITE = 0.025;           // white responds to pod
+let A_YOLK = 0.010;            // yolk lags behind white
+let K_WHITE = 0.007;           // white gelation rate
 let W_WHITE = 3;
-let K_YOLK = 0.003;
+let K_YOLK = 0.004;            // yolk gelation rate
 let W_YOLK = 3;
-const CRACK_THRESHOLD = 0.35;  // °C change per tick to cause crack
+const CRACK_THRESHOLD = 1.5;   // °C change per tick (only aggressive dives)
 const CRACK_COOLDOWN = 20;     // seconds between cracks
 const MAX_CRACKS = 4;          // 0-4 cracks, then broken
 const BOIL_LIMIT = 20;         // seconds of boiling = game over
