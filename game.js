@@ -1156,14 +1156,14 @@ function renderInstructions() {
     'Your job: deliver it through the atmosphere.',
     '',
     'As you descend, the air gets hotter — cooking the egg.',
-    'A study once found that the secret to a perfect cook',
+    'A 2025 study in Nature found that the secret to a perfect egg',
     'lies in alternating between hot and cool zones —',
-    'not lingering at one depth.',
+    'not lingering at one temperature.',
     'The egg needs rhythm, not patience.',
     '',
     'But watch out:',
     '  - Rapid temperature swings crack the shell',
-    '  - Go too deep and the egg boils',
+    '  - Go too deep and the egg bursts from steam',
     '  - Overcook it and you\'re fired',
   ];
   for (let i = 0; i < lines.length; i++) {
