@@ -74,7 +74,7 @@ let lightningState = { cooldown: 10, flashTimer: 0, x: 0, y: 0, bolt: [] };
 
 // ── Sky Fish ──
 let skyFish = [];
-let fishSpawnCooldown = 20 + Math.random() * 30;
+let fishSpawnCooldown = 6 + Math.random() * 10;
 
 // ── Helper Functions ──
 function sigmoid(x) {
@@ -312,8 +312,8 @@ function updateParticles(dt) {
 
     // Sky fish spawn
     fishSpawnCooldown -= dt;
-    if (fishSpawnCooldown <= 0 && skyFish.length < 3) {
-      fishSpawnCooldown = 20 + Math.random() * 30;
+    if (fishSpawnCooldown <= 0 && skyFish.length < 5) {
+      fishSpawnCooldown = 6 + Math.random() * 10;
       const facing = Math.random() < 0.5 ? 1 : -1;
       const spawnX = facing === 1 ? camera.x - 100 : camera.x + W + 100;
       const spawnY = camera.y + H * 0.1 + Math.random() * H * 0.8;
@@ -327,7 +327,7 @@ function updateParticles(dt) {
         phaseSpeed: 1.2 + Math.random() * 0.8,
         undulateAmp: 15 + Math.random() * 20,
         facing,
-        size: 0.7 + Math.random() * 0.7,
+        size: 0.3 + Math.random() * 2.2,
         hue: 175 + Math.random() * 40,
         alpha: 0,
         life: maxLife,
@@ -356,8 +356,8 @@ function updateParticles(dt) {
 
   // Lightning update (playing only, deep atmosphere)
   if (gameState === 'playing') {
-    const t = clamp(Math.max(0, device.y) / WORLD_BOTTOM, 0, 1);
-    if (t > 0.5) {
+    const t = clamp(Math.max(0, device.y) / 3500, 0, 1);
+    if (t > 0.4) {
       if (lightningState.cooldown > 0) {
         lightningState.cooldown -= dt;
       } else if (lightningState.flashTimer <= 0) {
@@ -432,7 +432,7 @@ function resetGame() {
   steamParticles = [];
   thrustParticles = [];
   skyFish = [];
-  fishSpawnCooldown = 20 + Math.random() * 30;
+  fishSpawnCooldown = 6 + Math.random() * 10;
   lightningState = { cooldown: 10, flashTimer: 0, x: 0, y: 0, bolt: [] };
   thermalAccum = 0;
   score = 0;
@@ -450,7 +450,7 @@ function resetGame() {
 
 // ── Atmosphere Color Helper ──
 function atmosphereColor(worldY) {
-  const t = clamp(worldY / WORLD_BOTTOM, 0, 1);
+  const t = clamp(worldY / 3500, 0, 1);
   const stops = [
     { t: 0.00, r: 22,  g: 14, b: 58  },
     { t: 0.35, r: 38,  g: 72, b: 88  },
@@ -510,7 +510,7 @@ function renderBackground() {
   // ── Swirling current streaks (recolored by depth) ──
   ctx.save();
   const depth = Math.max(0, device.y);
-  const t = clamp(depth / WORLD_BOTTOM, 0, 1);
+  const t = clamp(depth / 3500, 0, 1);
   const streakAlpha = 0.03 + t * 0.06;
   const streakR = Math.round(60  + t * 160);
   const streakG = Math.round(120 + t * 60  - t * t * 100);
@@ -532,7 +532,7 @@ function renderBackground() {
   ctx.restore();
 
   // ── Lightning flash (deep atmosphere, t > 0.5) ──
-  if (t > 0.5 && lightningState.flashTimer > 0 && lightningState.bolt.length > 0) {
+  if (t > 0.4 && lightningState.flashTimer > 0 && lightningState.bolt.length > 0) {
     ctx.save();
     const lgx = lightningState.x;
     const lgy = lightningState.y;
