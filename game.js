@@ -12,7 +12,7 @@ const THRUST_UP = 2 * GRAVITY; // 2g upward — allows actual climbing
 const THRUST_SIDE = 20.0;     // m/s² horizontal (8.0 × 2.5)
 const DRAG = 0.003;            // low drag (terminal velocity scales with gravity)
 const MAX_SPEED = 150;         // m/s hard speed cap (60 × 2.5)
-const WORLD_TOP = 0;           // min depth
+const WORLD_TOP = -100;         // min depth (100m above surface)
 const WORLD_BOTTOM = 12500;    // max depth in meters (5000 × 2.5)
 const WORLD_LEFT = -50;        // small buffer left of farm
 const JONES_X = 25000;         // horizontal distance to Jones' house (10 km × 2.5 scale)
@@ -1371,10 +1371,9 @@ function renderOpening(dt) {
     ctx.fillText('Cap opening...', W / 2, H - 40);
   } else if (openingTimer < 1.5) {
     ctx.fillText('Egg loaded!', W / 2, H - 40);
-  } else if (openingTimer < 2.0) {
-    ctx.fillText('Thruster disengaging...', W / 2, H - 40);
   } else {
-    ctx.fillText('You\'re on your own!', W / 2, H - 40);
+    ctx.fillText('Jones\' house is to the right \u2192', W / 2, H - 55);
+    ctx.fillText('Dive deeper for warmer temperatures \u2193', W / 2, H - 35);
   }
 
   if (openingTimer >= 1.5 && !eggLoaded) {
