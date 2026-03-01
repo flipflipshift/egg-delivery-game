@@ -120,9 +120,13 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
   }
   // Close instructions
-  if ((e.key === 'q' || e.key === 'Q' || e.key === 'x' || e.key === 'X') && gameState === 'instructions') {
+  if (e.key === ' ' && gameState === 'instructions') {
     gameState = 'opening';
     openingTimer = 0;
+  }
+  // Start playing from opening hints
+  if ((e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') && gameState === 'opening' && openingTimer >= OPENING_DURATION) {
+    gameState = 'playing';
   }
   // Pause toggle
   if (e.key === 'p' || e.key === 'P') {
@@ -1337,7 +1341,7 @@ function renderInstructions() {
   // Dismiss
   ctx.fillStyle = '#ffcc66';
   ctx.font = 'bold 14px monospace';
-  ctx.fillText('Press Q or X to start', W / 2, 540);
+  ctx.fillText('Press SPACE to start', W / 2, 540);
 }
 
 function renderOpening(dt) {
@@ -1371,16 +1375,19 @@ function renderOpening(dt) {
     ctx.fillText('Cap opening...', W / 2, H - 40);
   } else if (openingTimer < 1.5) {
     ctx.fillText('Egg loaded!', W / 2, H - 40);
+  } else if (openingTimer < OPENING_DURATION) {
+    ctx.fillText('Jones\' house is to the right \u2192', W / 2, H - 55);
+    ctx.fillText('Dive deeper for warmer temperatures \u2193', W / 2, H - 35);
   } else {
     ctx.fillText('Jones\' house is to the right \u2192', W / 2, H - 55);
     ctx.fillText('Dive deeper for warmer temperatures \u2193', W / 2, H - 35);
+    ctx.fillStyle = '#88ffaa';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText('Press \u2192 or D to launch', W / 2, H - 15);
   }
 
   if (openingTimer >= 1.5 && !eggLoaded) {
     eggLoaded = true;
-  }
-  if (openingTimer >= OPENING_DURATION) {
-    gameState = 'playing';
   }
 }
 
