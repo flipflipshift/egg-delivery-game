@@ -26,8 +26,8 @@ let K_WHITE = 0.009;           // white gelation rate (tuned for A_POD=0.3)
 let W_WHITE = 3;
 let K_YOLK = 0.004;            // yolk gelation rate
 let W_YOLK = 3;
-const CRACK_THRESHOLD = 1.2;   // °C change per tick (moderate oscillations produce cracks)
-const CRACK_COOLDOWN = 12;     // seconds between cracks
+const CRACK_THRESHOLD = 0.8;   // °C change per tick (moderate oscillations produce cracks)
+const CRACK_COOLDOWN = 20;     // seconds between cracks
 const MAX_CRACKS = 4;          // 0-4 cracks, then broken
 const BOIL_LIMIT = 20;         // seconds of boiling = game over
 const WHITE_GEL_CAP = 1.5;    // overcooked threshold
