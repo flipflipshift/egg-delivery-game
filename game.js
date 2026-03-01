@@ -71,6 +71,9 @@ let thrustParticles = [];
 // ── Atmosphere ──
 let atmosphereTime = 0;
 
+// ── Wall scroll offset ──
+let wallScrollY = 0;
+
 // ── Sky Fish ──
 let skyFish = [];
 let fishSpawnCooldown = 6 + Math.random() * 10;
@@ -416,6 +419,7 @@ function resetGame() {
   yolkScore = 0;
   openingTimer = 0;
   eggLoaded = false;
+  wallScrollY = 0;
   gameState = 'instructions';
   gameOverReason = '';
 }
@@ -1096,7 +1100,7 @@ function renderHUD() {
   const outPres = outsidePressure(device.y);
   ctx.font = '9px monospace';
   ctx.fillStyle = '#6a8aaa';
-  ctx.fillText('Exterior Temperature', x, y);
+  ctx.fillText('Exterior Temp/Pressure', x, y);
   y += labelLh;
   ctx.font = '11px monospace';
   ctx.fillStyle = '#a96';
@@ -1108,7 +1112,7 @@ function renderHUD() {
   const podPres = (thermal.podAirTemp / 298).toFixed(2);
   ctx.font = '9px monospace';
   ctx.fillStyle = '#6a8aaa';
-  ctx.fillText('Pod Air Temperature', x, y);
+  ctx.fillText('Pod Air Temp/Pressure', x, y);
   y += labelLh;
   ctx.font = '11px monospace';
   ctx.fillStyle = '#9a8';
@@ -1124,13 +1128,14 @@ function renderHUD() {
   ctx.font = '11px monospace';
   ctx.fillStyle = '#dda';
   ctx.fillText(`${whiteC.toFixed(1)}°C`, x, y);
-  ctx.fillStyle = '#665544';
-  ctx.font = '9px monospace';
-  ctx.fillText('>85°C', x + 58, y);
   if (whiteC > 85) {
     ctx.fillStyle = '#f44';
     ctx.font = 'bold 10px monospace';
     ctx.fillText('COOKING', x + 100, y);
+  } else {
+    ctx.fillStyle = '#665544';
+    ctx.font = '8px monospace';
+    ctx.fillText('>85 to cook', x + 58, y);
   }
   ctx.font = '11px monospace';
   y += valueLh;
@@ -1144,13 +1149,14 @@ function renderHUD() {
   ctx.font = '11px monospace';
   ctx.fillStyle = '#da8';
   ctx.fillText(`${yolkC.toFixed(1)}°C`, x, y);
-  ctx.fillStyle = '#554433';
-  ctx.font = '9px monospace';
-  ctx.fillText('>65°C', x + 58, y);
   if (yolkC > 65) {
     ctx.fillStyle = '#f44';
     ctx.font = 'bold 10px monospace';
     ctx.fillText('COOKING', x + 100, y);
+  } else {
+    ctx.fillStyle = '#554433';
+    ctx.font = '8px monospace';
+    ctx.fillText('>65 to cook', x + 58, y);
   }
   ctx.font = '11px monospace';
   y += valueLh;
@@ -1541,8 +1547,9 @@ function renderBoundaryWall(ox, oy) {
   ctx.fillStyle = 'rgba(255,120,60,0.5)';
   ctx.font = '16px monospace';
   ctx.textAlign = 'center';
-  for (let i = -20; i <= 20; i++) {
-    const screenY = (camera.y + H / 2) - oy + i * 25;
+  const wallPhase = ((wallScrollY % 25) + 25) % 25;
+  for (let i = -1; i <= Math.ceil(H / 25) + 1; i++) {
+    const screenY = wallPhase + i * 25;
     ctx.fillText('\u25B2', screenX, screenY);
   }
   // Vertical line
@@ -1591,6 +1598,7 @@ function loop(timestamp) {
     updatePhysics(dt);
     updateCamera();
     updateParticles(dt);
+    wallScrollY -= device.vy * dt;
 
     // Thermal ticks (1-second intervals)
     thermalAccum += dt;
