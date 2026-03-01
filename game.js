@@ -925,12 +925,15 @@ function renderHUD() {
   ctx.font = '11px monospace';
   ctx.fillStyle = '#dda';
   ctx.fillText(`${whiteC.toFixed(1)}°C`, x, y);
+  ctx.fillStyle = '#665544';
+  ctx.font = '9px monospace';
+  ctx.fillText('>85°C', x + 58, y);
   if (whiteC > 85) {
     ctx.fillStyle = '#f44';
     ctx.font = 'bold 10px monospace';
-    ctx.fillText('COOKING', x + 75, y);
-    ctx.font = '11px monospace';
+    ctx.fillText('COOKING', x + 100, y);
   }
+  ctx.font = '11px monospace';
   y += valueLh;
 
   // Egg Yolk Temperature
@@ -942,12 +945,15 @@ function renderHUD() {
   ctx.font = '11px monospace';
   ctx.fillStyle = '#da8';
   ctx.fillText(`${yolkC.toFixed(1)}°C`, x, y);
+  ctx.fillStyle = '#554433';
+  ctx.font = '9px monospace';
+  ctx.fillText('>65°C', x + 58, y);
   if (yolkC > 65) {
     ctx.fillStyle = '#f44';
     ctx.font = 'bold 10px monospace';
-    ctx.fillText('COOKING', x + 75, y);
-    ctx.font = '11px monospace';
+    ctx.fillText('COOKING', x + 100, y);
   }
+  ctx.font = '11px monospace';
   y += valueLh;
 
   // Egg White Gelation
@@ -956,7 +962,7 @@ function renderHUD() {
   ctx.fillText('Egg White Gelation', x, y);
   y += labelLh;
   renderGelationBar(x, y, 170, 10, thermal.whiteGelation, 0.9, WHITE_GEL_CAP, '#dda', '');
-  y += valueLh;
+  y += 10 + 16; // bar height + gap before next section
 
   // Egg Yolk Gelation
   ctx.textAlign = 'left';
@@ -965,7 +971,7 @@ function renderHUD() {
   ctx.fillText('Egg Yolk Gelation', x, y);
   y += labelLh;
   renderGelationBar(x, y, 170, 10, thermal.yolkGelation, 0.6, YOLK_GEL_CAP, '#da8', '');
-  y += valueLh;
+  y += 10 + 16; // bar height + gap before next section
 
   // Internal Egg Boiling Point
   const podPressure = thermal.podAirTemp / 298;
