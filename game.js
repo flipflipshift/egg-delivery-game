@@ -68,6 +68,14 @@ let highScores = JSON.parse(localStorage.getItem('caldara_scores') || '[]');
 let steamParticles = [];
 let thrustParticles = [];
 
+// ── Atmosphere ──
+let atmosphereTime = 0;
+let lightningState = { cooldown: 10, flashTimer: 0, x: 0, y: 0, bolt: [] };
+
+// ── Sky Fish ──
+let skyFish = [];
+let fishSpawnCooldown = 20 + Math.random() * 30;
+
 // ── Helper Functions ──
 function sigmoid(x) {
   return 1 / (1 + Math.exp(-x));
@@ -285,7 +293,7 @@ function updateThermal() {
 
 // ── Particle Update ──
 function updateParticles(dt) {
-  // Steam/atmosphere particles
+  // Steam/atmosphere particles + sky fish
   if (gameState === 'playing' || gameState === 'opening') {
     const depth = Math.max(0, device.y);
     const intensity = Math.min(1, depth / 2000);
@@ -297,8 +305,77 @@ function updateParticles(dt) {
         vy: (Math.random() - 0.5) * 5 - 2,
         life: 2 + Math.random() * 3,
         maxLife: 5,
-        size: 3 + Math.random() * 8
+        size: 3 + Math.random() * 8,
+        glow: Math.random() < 0.2
       });
+    }
+
+    // Sky fish spawn
+    fishSpawnCooldown -= dt;
+    if (fishSpawnCooldown <= 0 && skyFish.length < 3) {
+      fishSpawnCooldown = 20 + Math.random() * 30;
+      const facing = Math.random() < 0.5 ? 1 : -1;
+      const spawnX = facing === 1 ? camera.x - 100 : camera.x + W + 100;
+      const spawnY = camera.y + H * 0.1 + Math.random() * H * 0.8;
+      const maxLife = 15 + Math.random() * 25;
+      skyFish.push({
+        x: spawnX,
+        y: spawnY,
+        vx: facing * (30 + Math.random() * 35),
+        vy: 0,
+        phase: Math.random() * Math.PI * 2,
+        phaseSpeed: 1.2 + Math.random() * 0.8,
+        undulateAmp: 15 + Math.random() * 20,
+        facing,
+        size: 0.7 + Math.random() * 0.7,
+        hue: 175 + Math.random() * 40,
+        alpha: 0,
+        life: maxLife,
+        maxLife,
+      });
+    }
+
+    // Sky fish update
+    for (let i = skyFish.length - 1; i >= 0; i--) {
+      const fish = skyFish[i];
+      fish.phase += fish.phaseSpeed * dt;
+      fish.x += fish.vx * dt;
+      fish.y += Math.sin(fish.phase) * fish.undulateAmp * dt;
+      fish.life -= dt;
+      const lifeRatio = fish.life / fish.maxLife;
+      if (lifeRatio > 0.9) {
+        fish.alpha = (1 - lifeRatio) / 0.1;
+      } else if (lifeRatio < 0.15) {
+        fish.alpha = lifeRatio / 0.15;
+      } else {
+        fish.alpha = 1;
+      }
+      if (fish.life <= 0) skyFish.splice(i, 1);
+    }
+  }
+
+  // Lightning update (playing only, deep atmosphere)
+  if (gameState === 'playing') {
+    const t = clamp(Math.max(0, device.y) / WORLD_BOTTOM, 0, 1);
+    if (t > 0.5) {
+      if (lightningState.cooldown > 0) {
+        lightningState.cooldown -= dt;
+      } else if (lightningState.flashTimer <= 0) {
+        lightningState.flashTimer = 0.06 + Math.random() * 0.04;
+        lightningState.cooldown = 8 + Math.random() * 22;
+        lightningState.x = Math.random() * W;
+        lightningState.y = H * 0.4 + Math.random() * H * 0.5;
+        const bolt = [];
+        let bx = lightningState.x, by = lightningState.y;
+        for (let s = 0; s < 4; s++) {
+          bx += (Math.random() - 0.5) * 40;
+          by += 20 + Math.random() * 20;
+          bolt.push({ x: bx, y: by });
+        }
+        lightningState.bolt = bolt;
+      } else {
+        lightningState.flashTimer -= dt;
+      }
     }
   }
 
@@ -354,6 +431,9 @@ function resetGame() {
   };
   steamParticles = [];
   thrustParticles = [];
+  skyFish = [];
+  fishSpawnCooldown = 20 + Math.random() * 30;
+  lightningState = { cooldown: 10, flashTimer: 0, x: 0, y: 0, bolt: [] };
   thermalAccum = 0;
   score = 0;
   whiteScore = 0;
@@ -368,30 +448,74 @@ function resetGame() {
 // RENDERING
 // ═══════════════════════════════════════════════════════════════
 
+// ── Atmosphere Color Helper ──
+function atmosphereColor(worldY) {
+  const t = clamp(worldY / WORLD_BOTTOM, 0, 1);
+  const stops = [
+    { t: 0.00, r: 22,  g: 14, b: 58  },
+    { t: 0.35, r: 38,  g: 72, b: 88  },
+    { t: 0.65, r: 130, g: 78, b: 28  },
+    { t: 1.00, r: 105, g: 22, b: 18  },
+  ];
+  let lo = stops[0], hi = stops[1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    lo = stops[i];
+    hi = stops[i + 1];
+    if (t <= hi.t) break;
+  }
+  const seg = (hi.t === lo.t) ? 0 : (t - lo.t) / (hi.t - lo.t);
+  return {
+    r: Math.round(lo.r + seg * (hi.r - lo.r)),
+    g: Math.round(lo.g + seg * (hi.g - lo.g)),
+    b: Math.round(lo.b + seg * (hi.b - lo.b)),
+  };
+}
+
 // ── Background ──
 function renderBackground() {
-  // Depth-dependent gradient for gas giant atmosphere
-  const depth = Math.max(0, device.y);
-  const t = clamp(depth / WORLD_BOTTOM, 0, 1);
-
-  // Sky color transitions: pale blue → amber → deep orange → dark red
-  const r1 = Math.floor(40 + t * 180);
-  const g1 = Math.floor(30 + t * 60 - t * t * 80);
-  const b1 = Math.floor(80 - t * 60);
-  const r2 = Math.floor(20 + t * 140);
-  const g2 = Math.floor(15 + t * 30 - t * t * 40);
-  const b2 = Math.floor(60 - t * 50);
-
+  // 4-anchor piecewise gradient based on visible world depth band
+  const topColor = atmosphereColor(camera.y);
+  const botColor = atmosphereColor(camera.y + H);
   const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, `rgb(${r2},${g2},${b2})`);
-  grad.addColorStop(1, `rgb(${r1},${g1},${b1})`);
+  grad.addColorStop(0, `rgb(${topColor.r},${topColor.g},${topColor.b})`);
+  grad.addColorStop(1, `rgb(${botColor.r},${botColor.g},${botColor.b})`);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  // Swirling current streaks
+  // ── Atmospheric cloud bands (5 layers) ──
+  const bandDefs = [
+    { relY: 0.18, r: 80,  g: 130, b: 140, alpha: 0.07, halfH: 55, parallax: 0.15, drift: 12  },
+    { relY: 0.35, r: 160, g: 100, b: 50,  alpha: 0.09, halfH: 40, parallax: 0.25, drift: -8  },
+    { relY: 0.52, r: 200, g: 140, b: 60,  alpha: 0.08, halfH: 65, parallax: 0.18, drift: 15  },
+    { relY: 0.70, r: 180, g: 80,  b: 40,  alpha: 0.10, halfH: 45, parallax: 0.30, drift: -10 },
+    { relY: 0.85, r: 120, g: 30,  b: 20,  alpha: 0.12, halfH: 70, parallax: 0.12, drift: 6   },
+  ];
+  for (const band of bandDefs) {
+    const worldBandY = band.relY * WORLD_BOTTOM;
+    const rawScreenY = worldBandY - camera.y * (1 - band.parallax) + atmosphereTime * band.drift;
+    const period = H + band.halfH * 4;
+    const sy = ((rawScreenY % period) + period) % period - band.halfH * 2;
+    // Draw at wrapped position and one period ahead to cover seam
+    for (const drawY of [sy, sy + period]) {
+      if (drawY - band.halfH > H || drawY + band.halfH < 0) continue;
+      const bandGrad = ctx.createLinearGradient(0, drawY - band.halfH, 0, drawY + band.halfH);
+      bandGrad.addColorStop(0,   `rgba(${band.r},${band.g},${band.b},0)`);
+      bandGrad.addColorStop(0.5, `rgba(${band.r},${band.g},${band.b},${band.alpha})`);
+      bandGrad.addColorStop(1,   `rgba(${band.r},${band.g},${band.b},0)`);
+      ctx.fillStyle = bandGrad;
+      ctx.fillRect(0, drawY - band.halfH, W, band.halfH * 2);
+    }
+  }
+
+  // ── Swirling current streaks (recolored by depth) ──
   ctx.save();
+  const depth = Math.max(0, device.y);
+  const t = clamp(depth / WORLD_BOTTOM, 0, 1);
   const streakAlpha = 0.03 + t * 0.06;
-  ctx.strokeStyle = `rgba(255,200,100,${streakAlpha})`;
+  const streakR = Math.round(60  + t * 160);
+  const streakG = Math.round(120 + t * 60  - t * t * 100);
+  const streakB = Math.round(140 - t * 100);
+  ctx.strokeStyle = `rgba(${streakR},${streakG},${streakB},${streakAlpha})`;
   ctx.lineWidth = 2;
   for (let i = 0; i < 8; i++) {
     const sy = ((i * 137 + depth * 0.3) % (H + 200)) - 100;
@@ -407,7 +531,29 @@ function renderBackground() {
   }
   ctx.restore();
 
-  // Steam particles (rendered in world space later)
+  // ── Lightning flash (deep atmosphere, t > 0.5) ──
+  if (t > 0.5 && lightningState.flashTimer > 0 && lightningState.bolt.length > 0) {
+    ctx.save();
+    const lgx = lightningState.x;
+    const lgy = lightningState.y;
+    const glowGrad = ctx.createRadialGradient(lgx, lgy, 0, lgx, lgy, 120);
+    glowGrad.addColorStop(0,   'rgba(200,220,255,0.25)');
+    glowGrad.addColorStop(0.5, 'rgba(150,180,255,0.08)');
+    glowGrad.addColorStop(1,   'rgba(100,140,255,0)');
+    ctx.fillStyle = glowGrad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.shadowBlur = 18;
+    ctx.shadowColor = 'rgba(180,200,255,0.9)';
+    ctx.strokeStyle = 'rgba(220,235,255,0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(lgx, lgy);
+    for (const pt of lightningState.bolt) {
+      ctx.lineTo(pt.x, pt.y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // ── Farm Bubble ──
@@ -832,17 +978,28 @@ function renderDevice(ox, oy) {
 
 // ── Steam Particles (world space) ──
 function renderSteamParticles(ox, oy) {
+  const depth = Math.max(0, device.y);
+  const t = clamp(depth / WORLD_BOTTOM, 0, 1);
   for (const p of steamParticles) {
     const alpha = (p.life / p.maxLife) * 0.15;
-    const depth = Math.max(0, device.y);
-    const t = clamp(depth / WORLD_BOTTOM, 0, 1);
     const r = Math.floor(200 + t * 55);
     const g = Math.floor(180 + t * 20);
     const b = Math.floor(160 - t * 60);
-    ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
-    ctx.beginPath();
-    ctx.arc(p.x - ox, p.y - oy, p.size, 0, Math.PI * 2);
-    ctx.fill();
+    if (p.glow) {
+      ctx.save();
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = `rgba(${r},${g},${b},0.4)`;
+      ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+      ctx.beginPath();
+      ctx.arc(p.x - ox, p.y - oy, p.size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+      ctx.beginPath();
+      ctx.arc(p.x - ox, p.y - oy, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 
@@ -854,6 +1011,95 @@ function renderThrustParticles(ox, oy) {
     ctx.beginPath();
     ctx.arc(p.x - ox, p.y - oy, 2, 0, Math.PI * 2);
     ctx.fill();
+  }
+}
+
+// ── Sky Fish ──
+function drawSingleFish(sx, sy, fish) {
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.scale(fish.size * fish.facing, fish.size);
+
+  const hue = fish.hue;
+  const alpha = fish.alpha;
+  const phase = fish.phase;
+  const flapOffset = Math.cos(phase) * 4;
+
+  // Glow halo
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = `hsla(${hue}, 90%, 65%, ${alpha * 0.6})`;
+
+  // ── Pectoral fins ──
+  // Upper fin
+  ctx.beginPath();
+  ctx.moveTo(-10, -3);
+  ctx.bezierCurveTo(-20, -20 - flapOffset, -30, -35 - flapOffset, -5, -42 - flapOffset);
+  ctx.bezierCurveTo(10, -35, 15, -15, 5, -5);
+  ctx.closePath();
+  ctx.fillStyle = `hsla(${hue}, 70%, 60%, ${alpha * 0.35})`;
+  ctx.fill();
+
+  // Lower fin
+  ctx.beginPath();
+  ctx.moveTo(-10, 3);
+  ctx.bezierCurveTo(-20, 20 + flapOffset, -30, 35 + flapOffset, -5, 42 + flapOffset);
+  ctx.bezierCurveTo(10, 35, 15, 15, 5, 5);
+  ctx.closePath();
+  ctx.fillStyle = `hsla(${hue}, 70%, 60%, ${alpha * 0.35})`;
+  ctx.fill();
+
+  // ── Body ──
+  const bodyGrad = ctx.createLinearGradient(43, 0, -43, 0);
+  bodyGrad.addColorStop(0, `hsla(${hue + 20}, 80%, 70%, ${alpha * 0.7})`);
+  bodyGrad.addColorStop(1, `hsla(${hue - 20}, 60%, 30%, ${alpha * 0.6})`);
+
+  ctx.beginPath();
+  ctx.moveTo(43, 0);               // nose
+  ctx.bezierCurveTo(38, -9, 10, -9, -28, -6);  // top sweep
+  ctx.lineTo(-43, -10);            // upper tail fork
+  ctx.lineTo(-38, 0);              // tail notch
+  ctx.lineTo(-43, 10);             // lower tail fork
+  ctx.lineTo(-28, 6);
+  ctx.bezierCurveTo(10, 9, 38, 9, 43, 0);      // bottom sweep
+  ctx.closePath();
+  ctx.fillStyle = bodyGrad;
+  ctx.fill();
+
+  // Body outline
+  ctx.strokeStyle = `hsla(${hue + 30}, 100%, 80%, ${alpha * 0.5})`;
+  ctx.lineWidth = 0.8 / fish.size;  // compensate for scale
+  ctx.stroke();
+
+  // ── Dorsal ridge ──
+  ctx.beginPath();
+  ctx.moveTo(35, -2);
+  ctx.bezierCurveTo(10, -14, -15, -10, -30, -6);
+  ctx.strokeStyle = `hsla(${hue + 40}, 100%, 85%, ${alpha * 0.6})`;
+  ctx.lineWidth = 1 / fish.size;
+  ctx.stroke();
+
+  // ── Bioluminescent spots ──
+  ctx.shadowBlur = 10;
+  for (let i = 0; i < 5; i++) {
+    const dotX = 25 - i * 12;
+    const dotY = -4 + Math.sin(dotX * 0.15) * 3;
+    const pulse = 0.5 + 0.5 * Math.sin(phase + i * 0.8);
+    const dotAlpha = alpha * (0.6 + pulse * 0.4);
+    ctx.fillStyle = `hsla(${hue + 60}, 100%, 90%, ${dotAlpha})`;
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, 1.5 + pulse * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function renderSkyFish(ox, oy) {
+  for (const fish of skyFish) {
+    const sx = fish.x - ox;
+    const sy = fish.y - oy;
+    if (sx < -200 || sx > W + 200 || sy < -100 || sy > H + 100) continue;
+    drawSingleFish(sx, sy, fish);
   }
 }
 
@@ -1152,6 +1398,7 @@ function renderOpening(dt) {
   renderBackground();
   const ox = camera.x;
   const oy = camera.y;
+  renderSkyFish(ox, oy);
   renderFarm(ox, oy);
   renderDevice(ox, oy);
 
@@ -1372,6 +1619,7 @@ function renderDeliveryPrompt() {
 function loop(timestamp) {
   const dt = Math.min((timestamp - lastTime) / 1000, 0.05); // cap at 50ms
   lastTime = timestamp;
+  atmosphereTime += dt;
 
   // ── Update ──
   if (gameState === 'playing') {
@@ -1403,6 +1651,7 @@ function loop(timestamp) {
     const ox = camera.x;
     const oy = camera.y;
     renderSteamParticles(ox, oy);
+    renderSkyFish(ox, oy);
     renderFarm(ox, oy);
     renderJonesHouse(ox, oy);
     renderThrustParticles(ox, oy);
@@ -1416,6 +1665,7 @@ function loop(timestamp) {
     const ox = camera.x;
     const oy = camera.y;
     renderSteamParticles(ox, oy);
+    renderSkyFish(ox, oy);
     renderDevice(ox, oy);
     renderGameOver();
   } else if (gameState === 'scoring') {
