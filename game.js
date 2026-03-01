@@ -15,7 +15,7 @@ const MAX_SPEED = 150;         // m/s hard speed cap (60 × 2.5)
 const WORLD_TOP = 0;           // min depth
 const WORLD_BOTTOM = 12500;    // max depth in meters (5000 × 2.5)
 const WORLD_LEFT = -50;        // small buffer left of farm
-const JONES_X = 7500;          // horizontal distance to Jones' house (3000 × 2.5)
+const JONES_X = 25000;         // horizontal distance to Jones' house (10 km × 2.5 scale)
 const DELIVERY_RADIUS = 200;   // how close to deliver (80 × 2.5)
 
 // ── Thermal Constants ──
@@ -23,13 +23,9 @@ let A_POD = 0.3;               // pod closely tracks outside temp
 let A_WHITE = 0.035;           // white responds to pod (tuned for A_POD=0.3)
 let A_YOLK = 0.010;            // yolk lags behind white
 let K_WHITE = 0.009;           // white gelation rate (tuned for A_POD=0.3)
-let W_WHITE = 3;
+let W_WHITE = 1;
 let K_YOLK = 0.004;            // yolk gelation rate
-let W_YOLK = 3;
-const CRACK_THRESHOLD = 0.8;   // °C change per tick (moderate oscillations produce cracks)
-const CRACK_COOLDOWN = 20;     // seconds between cracks
-const MAX_CRACKS = 4;          // 0-4 cracks, then broken
-const BOIL_LIMIT = 20;         // seconds of boiling = game over
+let W_YOLK = 1;
 const WHITE_GEL_CAP = 1.5;    // overcooked threshold
 const YOLK_GEL_CAP = 1.0;
 
@@ -56,10 +52,7 @@ let thermal = {
   yolkTemp: 323,         // K
   whiteGelation: 0,
   yolkGelation: 0,
-  cracks: 0,
-  crackCooldown: 0,      // seconds remaining
-  boilSeconds: 0,
-  prevWhiteTemp: 323     // for crack detection
+  boilSeconds: 0
 };
 
 let camera = { x: 0, y: 0 };
@@ -124,6 +117,11 @@ document.addEventListener('keydown', e => {
     gameState = 'opening';
     openingTimer = 0;
   }
+  // Pause toggle
+  if (e.key === 'p' || e.key === 'P') {
+    if (gameState === 'playing') gameState = 'paused';
+    else if (gameState === 'paused') gameState = 'playing';
+  }
   // Deliver egg
   if (e.key === ' ' && gameState === 'playing') {
     const dx = device.x - JONES_X;
@@ -135,7 +133,7 @@ document.addEventListener('keydown', e => {
   }
   // Restart
   if (e.key === 'r' || e.key === 'R') {
-    if (gameState === 'gameover' || gameState === 'scoring' || gameState === 'playing') {
+    if (gameState === 'gameover' || gameState === 'scoring' || gameState === 'playing' || gameState === 'paused') {
       resetGame();
     }
   }
@@ -242,9 +240,6 @@ function updateThermal() {
   const T_out = outsideTemp(device.y);
   const P_out = outsidePressure(device.y);
 
-  // Save previous white temp for crack detection
-  thermal.prevWhiteTemp = thermal.eggWhiteTemp;
-
   // Temperature updates (batch using previous values)
   const newPodTemp = thermal.podAirTemp + A_POD * (T_out - thermal.podAirTemp);
   const newWhiteTemp = thermal.eggWhiteTemp + A_WHITE * (thermal.podAirTemp - thermal.eggWhiteTemp);
@@ -267,29 +262,12 @@ function updateThermal() {
   thermal.whiteGelation += K_WHITE * sigmoid((whiteTempC - 85) / W_WHITE);
   thermal.yolkGelation += K_YOLK * sigmoid((yolkTempC - 65) / W_YOLK);
 
-  // Shell cracking
-  if (thermal.crackCooldown > 0) {
-    thermal.crackCooldown -= 1;
-  }
-  const deltaWhite = Math.abs(thermal.eggWhiteTemp - thermal.prevWhiteTemp);
-  if (deltaWhite >= CRACK_THRESHOLD && thermal.crackCooldown <= 0) {
-    thermal.cracks++;
-    thermal.crackCooldown = CRACK_COOLDOWN;
-    if (thermal.cracks > MAX_CRACKS) {
-      gameState = 'gameover';
-      gameOverReason = 'Shell shattered! The egg broke apart.';
-      return;
-    }
-  }
-
-  // Boiling check
+  // Boiling check — instant game over
   if (thermal.eggWhiteTemp > boilingPointK) {
     thermal.boilSeconds++;
-    if (thermal.boilSeconds > BOIL_LIMIT) {
-      gameState = 'gameover';
-      gameOverReason = 'Egg boiled! The interior pressure burst the egg.';
-      return;
-    }
+    gameState = 'gameover';
+    gameOverReason = 'Egg boiled! The interior pressure burst the egg.';
+    return;
   }
 
   // Gelation caps
@@ -354,8 +332,7 @@ function calculateScore() {
   whiteScore = Math.round(100 * peak(thermal.whiteGelation, 0.9, 0.15));
   yolkScore = Math.round(100 * peak(thermal.yolkGelation, 0.6, 0.15));
   const boilPenalty = thermal.boilSeconds * 10;
-  const crackPenalty = thermal.cracks * thermal.cracks * 20;
-  score = Math.round(Math.max(0, whiteScore + yolkScore - boilPenalty - crackPenalty));
+  score = Math.round(Math.max(0, whiteScore + yolkScore - boilPenalty));
 
   // Save high score
   highScores.push(score);
@@ -373,10 +350,7 @@ function resetGame() {
     yolkTemp: 323,
     whiteGelation: 0,
     yolkGelation: 0,
-    cracks: 0,
-    crackCooldown: 0,
-    boilSeconds: 0,
-    prevWhiteTemp: 323
+    boilSeconds: 0
   };
   steamParticles = [];
   thrustParticles = [];
@@ -808,19 +782,6 @@ function renderDevice(ox, oy) {
     ctx.ellipse(dx, dy - 1, 4, 5, 0, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Cracks on egg
-  if (eggLoaded && thermal.cracks > 0) {
-    ctx.strokeStyle = '#664';
-    ctx.lineWidth = 0.8;
-    for (let c = 0; c < Math.min(thermal.cracks, MAX_CRACKS); c++) {
-      const angle = (c * 1.3 + 0.5);
-      ctx.beginPath();
-      ctx.moveTo(dx + Math.cos(angle) * 2, dy - 1 + Math.sin(angle) * 2);
-      ctx.lineTo(dx + Math.cos(angle) * 5, dy - 1 + Math.sin(angle) * 5);
-      ctx.stroke();
-    }
-  }
-
   // Thrusters
   const thrusting = {
     up: keys['ArrowUp'] || keys['w'] || keys['W'],
@@ -905,8 +866,8 @@ function renderHUD() {
 
   const panelX = 8;
   const panelY = 8;
-  const panelW = 185;
-  const panelH = 250;
+  const panelW = 195;
+  const panelH = 340;
 
   // Panel background
   ctx.fillStyle = 'rgba(10,15,30,0.75)';
@@ -915,75 +876,110 @@ function renderHUD() {
   ctx.lineWidth = 1;
   ctx.strokeRect(panelX, panelY, panelW, panelH);
 
-  ctx.font = '11px monospace';
   ctx.textAlign = 'left';
   let y = panelY + 16;
   const x = panelX + 8;
-  const lh = 16; // line height
+  const labelLh = 14;
+  const valueLh = 18;
 
   // Depth
+  ctx.font = '9px monospace';
+  ctx.fillStyle = '#6a8aaa';
+  ctx.fillText('Depth', x, y);
+  y += labelLh;
+  ctx.font = '11px monospace';
   ctx.fillStyle = '#8ac';
-  ctx.fillText(`Depth: ${Math.round(device.y)} m`, x, y);
-  y += lh;
+  ctx.fillText(`${Math.round(device.y)} m`, x, y);
+  y += valueLh;
 
-  // Outside conditions
+  // Exterior Temperature
   const outTemp = kelvinToCelsius(outsideTemp(device.y));
   const outPres = outsidePressure(device.y);
+  ctx.font = '9px monospace';
+  ctx.fillStyle = '#6a8aaa';
+  ctx.fillText('Exterior Temperature', x, y);
+  y += labelLh;
+  ctx.font = '11px monospace';
   ctx.fillStyle = '#a96';
-  ctx.fillText(`Ext: ${outTemp.toFixed(0)}°C  ${outPres.toFixed(2)} bar`, x, y);
-  y += lh;
+  ctx.fillText(`${outTemp.toFixed(0)}°C  ${outPres.toFixed(2)} bar`, x, y);
+  y += valueLh;
 
-  // Pod air
+  // Pod Air Temperature
   const podC = kelvinToCelsius(thermal.podAirTemp);
   const podPres = (thermal.podAirTemp / 298).toFixed(2);
+  ctx.font = '9px monospace';
+  ctx.fillStyle = '#6a8aaa';
+  ctx.fillText('Pod Air Temperature', x, y);
+  y += labelLh;
+  ctx.font = '11px monospace';
   ctx.fillStyle = '#9a8';
-  ctx.fillText(`Pod: ${podC.toFixed(1)}°C  ${podPres} bar`, x, y);
-  y += lh;
+  ctx.fillText(`${podC.toFixed(1)}°C  ${podPres} bar`, x, y);
+  y += valueLh;
 
-  // Egg temps
+  // Egg White Temperature
   const whiteC = kelvinToCelsius(thermal.eggWhiteTemp);
-  const yolkC = kelvinToCelsius(thermal.yolkTemp);
+  ctx.font = '9px monospace';
+  ctx.fillStyle = '#6a8aaa';
+  ctx.fillText('Egg White Temperature', x, y);
+  y += labelLh;
+  ctx.font = '11px monospace';
   ctx.fillStyle = '#dda';
-  ctx.fillText(`White: ${whiteC.toFixed(1)}°C`, x, y);
-  ctx.fillStyle = '#886';
-  ctx.font = '8px monospace';
-  ctx.fillText('cooks >85°C', x + 105, y);
-  ctx.font = '11px monospace';
-  y += lh;
-  ctx.fillStyle = '#da8';
-  ctx.fillText(`Yolk:  ${yolkC.toFixed(1)}°C`, x, y);
-  ctx.fillStyle = '#864';
-  ctx.font = '8px monospace';
-  ctx.fillText('cooks >65°C', x + 105, y);
-  ctx.font = '11px monospace';
-  y += lh;
+  ctx.fillText(`${whiteC.toFixed(1)}°C`, x, y);
+  if (whiteC > 85) {
+    ctx.fillStyle = '#f44';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText('COOKING', x + 75, y);
+    ctx.font = '11px monospace';
+  }
+  y += valueLh;
 
-  // Boiling point
+  // Egg Yolk Temperature
+  const yolkC = kelvinToCelsius(thermal.yolkTemp);
+  ctx.font = '9px monospace';
+  ctx.fillStyle = '#6a8aaa';
+  ctx.fillText('Egg Yolk Temperature', x, y);
+  y += labelLh;
+  ctx.font = '11px monospace';
+  ctx.fillStyle = '#da8';
+  ctx.fillText(`${yolkC.toFixed(1)}°C`, x, y);
+  if (yolkC > 65) {
+    ctx.fillStyle = '#f44';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText('COOKING', x + 75, y);
+    ctx.font = '11px monospace';
+  }
+  y += valueLh;
+
+  // Egg White Gelation
+  ctx.font = '9px monospace';
+  ctx.fillStyle = '#6a8aaa';
+  ctx.fillText('Egg White Gelation', x, y);
+  y += labelLh;
+  renderGelationBar(x, y, 170, 10, thermal.whiteGelation, 0.9, WHITE_GEL_CAP, '#dda', '');
+  y += valueLh;
+
+  // Egg Yolk Gelation
+  ctx.textAlign = 'left';
+  ctx.font = '9px monospace';
+  ctx.fillStyle = '#6a8aaa';
+  ctx.fillText('Egg Yolk Gelation', x, y);
+  y += labelLh;
+  renderGelationBar(x, y, 170, 10, thermal.yolkGelation, 0.6, YOLK_GEL_CAP, '#da8', '');
+  y += valueLh;
+
+  // Internal Egg Boiling Point
   const podPressure = thermal.podAirTemp / 298;
   const bpK = 4894 / (13.12 - Math.log(podPressure / 1.013));
   const bpC = kelvinToCelsius(bpK);
   const nearBoil = whiteC > bpC - 10;
+  ctx.textAlign = 'left';
+  ctx.font = '9px monospace';
+  ctx.fillStyle = '#6a8aaa';
+  ctx.fillText('Internal Egg Boiling Point', x, y);
+  y += labelLh;
+  ctx.font = '11px monospace';
   ctx.fillStyle = nearBoil ? '#f66' : '#88a';
-  ctx.fillText(`Boil pt: ${bpC.toFixed(0)}°C${nearBoil ? ' ⚠' : ''}`, x, y);
-  y += lh + 4;
-
-  // White gelation bar
-  renderGelationBar(x, y, 160, 10, thermal.whiteGelation, 0.9, WHITE_GEL_CAP, '#dda', 'White');
-  y += 18;
-
-  // Yolk gelation bar
-  renderGelationBar(x, y, 160, 10, thermal.yolkGelation, 0.6, YOLK_GEL_CAP, '#da8', 'Yolk');
-  y += 22;
-
-  // Shell integrity
-  renderShellIntegrity(x, y);
-  y += 18;
-
-  // Boiling counter
-  if (thermal.boilSeconds > 0) {
-    ctx.fillStyle = thermal.boilSeconds > 10 ? '#f44' : '#fa8';
-    ctx.fillText(`Boiling: ${thermal.boilSeconds}/${BOIL_LIMIT}s`, x, y);
-  }
+  ctx.fillText(`${bpC.toFixed(0)}°C${nearBoil ? '  ⚠' : ''}`, x, y);
 
   ctx.restore();
 
@@ -1032,52 +1028,6 @@ function renderGelationBar(x, y, w, h, value, target, cap, color, label) {
   ctx.strokeStyle = 'rgba(100,130,180,0.4)';
   ctx.lineWidth = 0.5;
   ctx.strokeRect(x, y, w, h);
-}
-
-function renderShellIntegrity(x, y) {
-  ctx.font = '11px monospace';
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#aaa';
-  ctx.fillText('Shell: ', x, y);
-
-  // Draw egg icons showing cracks
-  const ex = x + 42;
-  const ey = y - 4;
-
-  // Egg shape
-  ctx.fillStyle = thermal.cracks > MAX_CRACKS ? '#844' : '#f4ead0';
-  ctx.beginPath();
-  ctx.ellipse(ex + 6, ey, 6, 8, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = '#664';
-  ctx.lineWidth = 0.8;
-  ctx.stroke();
-
-  // Draw crack lines
-  for (let c = 0; c < Math.min(thermal.cracks, MAX_CRACKS + 1); c++) {
-    ctx.strokeStyle = '#442';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    const a = c * 1.5 + 0.3;
-    ctx.moveTo(ex + 6 + Math.cos(a) * 2, ey + Math.sin(a) * 2);
-    ctx.lineTo(ex + 6 + Math.cos(a) * 7, ey + Math.sin(a) * 7);
-    if (c > 1) {
-      ctx.lineTo(ex + 6 + Math.cos(a + 0.4) * 5, ey + Math.sin(a + 0.4) * 5);
-    }
-    ctx.stroke();
-  }
-
-  // Status text
-  if (thermal.cracks > MAX_CRACKS) {
-    ctx.fillStyle = '#f44';
-    ctx.fillText('BROKEN', ex + 18, y);
-  } else if (thermal.cracks > 0) {
-    ctx.fillStyle = '#fa8';
-    ctx.fillText(`${thermal.cracks} crack${thermal.cracks > 1 ? 's' : ''}`, ex + 18, y);
-  } else {
-    ctx.fillStyle = '#8c8';
-    ctx.fillText('intact', ex + 18, y);
-  }
 }
 
 function renderProgressBar() {
@@ -1162,8 +1112,7 @@ function renderInstructions() {
     'The egg needs rhythm, not patience.',
     '',
     'But watch out:',
-    '  - Rapid temperature swings crack the shell',
-    '  - Go too deep and the egg bursts from steam',
+    '  - If the interior boils even once, the egg bursts',
     '  - Overcook it and you\'re fired',
   ];
   for (let i = 0; i < lines.length; i++) {
@@ -1178,6 +1127,7 @@ function renderInstructions() {
     '← / A  —  Fire right-thruster (go left)',
     '→ / D  —  Fire left-thruster (go right)',
     'SPACE  —  Deliver egg (when near house)',
+    'P      —  Pause / unpause',
   ];
   for (let i = 0; i < controls.length; i++) {
     ctx.fillText(controls[i], W / 2, 420 + i * 20);
@@ -1312,11 +1262,6 @@ function renderFinalStats(startY) {
   ctx.fillText(`${yFb.label}  +${yolkScore} pts`, W / 2, y);
   y += 25;
 
-  // Cracks
-  ctx.fillStyle = thermal.cracks === 0 ? '#8c8' : '#fa8';
-  ctx.fillText(`Shell cracks: ${thermal.cracks}  (−${thermal.cracks * thermal.cracks * 20} pts)`, W / 2, y);
-  y += 20;
-
   // Boiling
   ctx.fillStyle = thermal.boilSeconds === 0 ? '#8c8' : '#fa8';
   ctx.fillText(`Boiling time: ${thermal.boilSeconds}s  (−${thermal.boilSeconds * 10} pts)`, W / 2, y);
@@ -1350,6 +1295,21 @@ function renderScoringBar(x, y, w, h, value, target, cap) {
   ctx.strokeStyle = 'rgba(100,130,180,0.5)';
   ctx.lineWidth = 1;
   ctx.strokeRect(x, y, w, h);
+}
+
+// ── Pause Overlay ──
+function renderPauseOverlay() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(5,10,25,0.65)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffcc66';
+  ctx.font = 'bold 36px monospace';
+  ctx.fillText('PAUSED', W / 2, H / 2 - 20);
+  ctx.fillStyle = '#88ccaa';
+  ctx.font = '14px monospace';
+  ctx.fillText('Press P to continue  /  R to restart', W / 2, H / 2 + 20);
+  ctx.restore();
 }
 
 // ── Right Boundary Wall ──
@@ -1432,7 +1392,7 @@ function loop(timestamp) {
     renderInstructions();
   } else if (gameState === 'opening') {
     renderOpening(dt);
-  } else if (gameState === 'playing') {
+  } else if (gameState === 'playing' || gameState === 'paused') {
     renderBackground();
     const ox = camera.x;
     const oy = camera.y;
@@ -1444,6 +1404,7 @@ function loop(timestamp) {
     renderBoundaryWall(ox, oy);
     renderHUD();
     renderDeliveryPrompt();
+    if (gameState === 'paused') renderPauseOverlay();
   } else if (gameState === 'gameover') {
     renderBackground();
     const ox = camera.x;
