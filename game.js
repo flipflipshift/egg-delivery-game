@@ -70,7 +70,6 @@ let thrustParticles = [];
 
 // ── Atmosphere ──
 let atmosphereTime = 0;
-let lightningState = { cooldown: 10, flashTimer: 0, x: 0, y: 0, bolt: [] };
 
 // ── Sky Fish ──
 let skyFish = [];
@@ -354,31 +353,6 @@ function updateParticles(dt) {
     }
   }
 
-  // Lightning update (playing only, deep atmosphere)
-  if (gameState === 'playing') {
-    const t = clamp(Math.max(0, device.y) / 3500, 0, 1);
-    if (t > 0.4) {
-      if (lightningState.cooldown > 0) {
-        lightningState.cooldown -= dt;
-      } else if (lightningState.flashTimer <= 0) {
-        lightningState.flashTimer = 0.06 + Math.random() * 0.04;
-        lightningState.cooldown = 8 + Math.random() * 22;
-        lightningState.x = Math.random() * W;
-        lightningState.y = H * 0.4 + Math.random() * H * 0.5;
-        const bolt = [];
-        let bx = lightningState.x, by = lightningState.y;
-        for (let s = 0; s < 4; s++) {
-          bx += (Math.random() - 0.5) * 40;
-          by += 20 + Math.random() * 20;
-          bolt.push({ x: bx, y: by });
-        }
-        lightningState.bolt = bolt;
-      } else {
-        lightningState.flashTimer -= dt;
-      }
-    }
-  }
-
   // Update steam
   for (let i = steamParticles.length - 1; i >= 0; i--) {
     const p = steamParticles[i];
@@ -406,10 +380,9 @@ function updateCamera() {
 
 // ── Score Calculation ──
 function calculateScore() {
-  whiteScore = Math.round(100 * peak(thermal.whiteGelation, 0.9, 0.15));
-  yolkScore = Math.round(100 * peak(thermal.yolkGelation, 0.6, 0.15));
-  const boilPenalty = thermal.boilSeconds * 10;
-  score = Math.round(Math.max(0, whiteScore + yolkScore - boilPenalty));
+  whiteScore = Math.round(500 * peak(thermal.whiteGelation, 0.9, 0.15));
+  yolkScore = Math.round(500 * peak(thermal.yolkGelation, 0.6, 0.15));
+  score = whiteScore + yolkScore;
 
   // Save high score
   highScores.push(score);
@@ -433,7 +406,6 @@ function resetGame() {
   thrustParticles = [];
   skyFish = [];
   fishSpawnCooldown = 6 + Math.random() * 10;
-  lightningState = { cooldown: 10, flashTimer: 0, x: 0, y: 0, bolt: [] };
   thermalAccum = 0;
   score = 0;
   whiteScore = 0;
@@ -531,29 +503,6 @@ function renderBackground() {
   }
   ctx.restore();
 
-  // ── Lightning flash (deep atmosphere, t > 0.5) ──
-  if (t > 0.4 && lightningState.flashTimer > 0 && lightningState.bolt.length > 0) {
-    ctx.save();
-    const lgx = lightningState.x;
-    const lgy = lightningState.y;
-    const glowGrad = ctx.createRadialGradient(lgx, lgy, 0, lgx, lgy, 120);
-    glowGrad.addColorStop(0,   'rgba(200,220,255,0.25)');
-    glowGrad.addColorStop(0.5, 'rgba(150,180,255,0.08)');
-    glowGrad.addColorStop(1,   'rgba(100,140,255,0)');
-    ctx.fillStyle = glowGrad;
-    ctx.fillRect(0, 0, W, H);
-    ctx.shadowBlur = 18;
-    ctx.shadowColor = 'rgba(180,200,255,0.9)';
-    ctx.strokeStyle = 'rgba(220,235,255,0.9)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(lgx, lgy);
-    for (const pt of lightningState.bolt) {
-      ctx.lineTo(pt.x, pt.y);
-    }
-    ctx.stroke();
-    ctx.restore();
-  }
 }
 
 // ── Farm Bubble ──
@@ -1464,23 +1413,38 @@ function renderScoring() {
 
   ctx.textAlign = 'center';
   ctx.fillStyle = '#66ffaa';
-  ctx.font = 'bold 24px monospace';
-  ctx.fillText('EGG DELIVERED!', W / 2, 80);
+  ctx.font = 'bold 26px monospace';
+  ctx.fillText('EGG DELIVERED!', W / 2, 75);
 
-  renderFinalStats(130);
+  renderFinalStats(118);
+  // renderFinalStats now ends ~y=248 (two bars, no boil line)
 
-  // Score
+  // Separator
+  ctx.strokeStyle = 'rgba(100,130,180,0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(W / 2 - 130, 262);
+  ctx.lineTo(W / 2 + 130, 262);
+  ctx.stroke();
+
+  // Total score — large and prominent
+  ctx.fillStyle = 'rgba(255,200,80,0.12)';
+  ctx.fillRect(W / 2 - 100, 272, 200, 68);
   ctx.fillStyle = '#ffcc66';
-  ctx.font = 'bold 20px monospace';
-  ctx.fillText(`SCORE: ${score}`, W / 2, 420);
+  ctx.font = 'bold 48px monospace';
+  ctx.fillText(score, W / 2, 324);
+  ctx.fillStyle = '#887744';
+  ctx.font = '13px monospace';
+  ctx.fillText('/ 1000', W / 2, 344);
 
   // High scores
-  ctx.fillStyle = '#8899bb';
-  ctx.font = '13px monospace';
-  ctx.fillText('— HIGH SCORES —', W / 2, 460);
+  ctx.fillStyle = '#556677';
+  ctx.font = '12px monospace';
+  ctx.fillText('— BEST SCORES —', W / 2, 376);
   for (let i = 0; i < highScores.length; i++) {
-    ctx.fillStyle = i === highScores.indexOf(score) ? '#ffcc66' : '#667788';
-    ctx.fillText(`${i + 1}. ${highScores[i]}`, W / 2, 480 + i * 18);
+    ctx.fillStyle = highScores[i] === score && i === highScores.indexOf(score)
+      ? '#ffcc66' : '#445566';
+    ctx.fillText(`${i + 1}.  ${highScores[i]}`, W / 2, 394 + i * 17);
   }
 
   ctx.fillStyle = '#88ccaa';
@@ -1501,7 +1465,7 @@ function renderFinalStats(startY) {
   y += 22;
   const wFb = getGelationFeedback(thermal.whiteGelation, 0.9, WHITE_GEL_CAP);
   ctx.fillStyle = wFb.color;
-  ctx.fillText(`${wFb.label}  +${whiteScore} pts`, W / 2, y);
+  ctx.fillText(`${wFb.label}  +${whiteScore} / 500`, W / 2, y);
   y += 25;
 
   // Yolk gelation bar
@@ -1512,12 +1476,7 @@ function renderFinalStats(startY) {
   y += 22;
   const yFb = getGelationFeedback(thermal.yolkGelation, 0.6, YOLK_GEL_CAP);
   ctx.fillStyle = yFb.color;
-  ctx.fillText(`${yFb.label}  +${yolkScore} pts`, W / 2, y);
-  y += 25;
-
-  // Boiling
-  ctx.fillStyle = thermal.boilSeconds === 0 ? '#8c8' : '#fa8';
-  ctx.fillText(`Boiling time: ${thermal.boilSeconds}s  (−${thermal.boilSeconds * 10} pts)`, W / 2, y);
+  ctx.fillText(`${yFb.label}  +${yolkScore} / 500`, W / 2, y);
 }
 
 function renderScoringBar(x, y, w, h, value, target, cap) {
